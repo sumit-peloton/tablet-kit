@@ -1,0 +1,2 @@
+adb shell am broadcast -a com.onepeloton.sensorstateindicator.monitor.pin.ENABLE_PIN_INDICATOR --ez "enable" false
+adb shell am broadcast -a com.onepeloton.sensorstateindicator.monitor.pin.ENABLE_PIN_TIMEOUT --ez "enable" false

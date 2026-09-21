@@ -1,0 +1,335 @@
+import Foundation
+import Combine
+import AppKit
+import UniformTypeIdentifiers
+
+@MainActor
+class SetupViewModel: ObservableObject {
+    /// All actions available on the dashboard (flattened from the loaded catalog).
+    @Published var actions: [StepState] = []
+    /// Current tablet status shown in the top status bar.
+    @Published var device: DeviceInfo = .disconnected
+    @Published var isRefreshingDevice: Bool = false
+    /// Whether ADB is installed on the Mac. `nil` until the first check completes.
+    @Published var adbInstalled: Bool?
+    @Published var isInstallingADB: Bool = false
+    @Published var errorMessage: String?
+    /// Rolling log of commands + output shown in the persistent console.
+    @Published var console: [ConsoleEntry] = []
+
+    private let runner = CommandRunner()
+
+    // MARK: - Console logging
+
+    private func log(_ text: String, _ kind: ConsoleEntry.Kind = .output) {
+        console.append(ConsoleEntry(kind: kind, text: text))
+    }
+
+    func clearConsole() {
+        console.removeAll()
+    }
+
+    init() {
+        loadActions()
+    }
+
+    /// Actions grouped by category, preserving the order they appear in the catalog.
+    var categories: [(name: String, actions: [StepState])] {
+        var order: [String] = []
+        var buckets: [String: [StepState]] = [:]
+        for action in actions {
+            let category = action.step.category ?? "General"
+            if buckets[category] == nil {
+                buckets[category] = []
+                order.append(category)
+            }
+            buckets[category]?.append(action)
+        }
+        return order.map { (name: $0, actions: buckets[$0] ?? []) }
+    }
+
+    // MARK: - Load actions from bundled JSON
+
+    func loadActions() {
+        if let url = Bundle.module.url(forResource: "setup_flows", withExtension: "json") {
+            decode(from: url); return
+        }
+        if let url = Bundle.main.url(forResource: "setup_flows", withExtension: "json") {
+            decode(from: url); return
+        }
+        let execDir = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+        let sidecar = execDir.appendingPathComponent("setup_flows.json")
+        if FileManager.default.fileExists(atPath: sidecar.path) {
+            decode(from: sidecar); return
+        }
+        // Last resort: embedded defaults
+        buildActions(from: SetupFlowDefaults.flows)
+    }
+
+    private func decode(from url: URL) {
+        do {
+            let data = try Data(contentsOf: url)
+            let catalog = try JSONDecoder().decode(SetupFlowCatalog.self, from: data)
+            buildActions(from: catalog.flows)
+        } catch {
+            errorMessage = "Failed to load setup actions: \(error.localizedDescription)"
+            buildActions(from: SetupFlowDefaults.flows)
+        }
+    }
+
+    private func buildActions(from flows: [SetupFlow]) {
+        // The dashboard shows a single flat catalog of actions across all flows.
+        let steps = flows.flatMap { $0.steps }
+        actions = steps.map { StepState(step: $0) }
+    }
+
+    // MARK: - Run a single action on demand
+
+    func runAction(_ action: StepState) async {
+        if case .running = action.status { return }
+
+        // Special flows (e.g. APK installer with a file picker).
+        if action.step.kind == "installApks" {
+            await runInstallApks(action)
+            return
+        }
+
+        // Optional confirmation dialog before running.
+        if action.step.confirm == true, !confirmRun(action) {
+            return
+        }
+
+        action.status = .running
+        log("▸ \(action.step.title)", .info)
+
+        var allSucceeded = true
+        for cmdState in action.commandStates {
+            let ok = await runCommand(cmdState)
+            if !ok { allSucceeded = false }
+        }
+
+        if allSucceeded {
+            action.status = .succeeded
+        } else if action.step.optional ?? false {
+            action.status = .skipped
+        } else {
+            action.status = .failed("One or more commands failed")
+        }
+    }
+
+    // MARK: - APK installer (file picker)
+
+    private func runInstallApks(_ action: StepState) async {
+        guard device.connection == .connected else {
+            log("▸ \(action.step.title)", .info)
+            log("✕ No tablet connected — plug in a tablet and press Refresh", .failure)
+            action.status = .failed("No tablet connected")
+            return
+        }
+        guard let urls = pickAPKs(), !urls.isEmpty else { return }
+
+        action.status = .running
+        log("▸ \(action.step.title)", .info)
+        let cmdState = action.commandStates.first
+        cmdState?.status = .running
+        cmdState?.output = ""
+
+        let base = action.step.commands.first?.shell ?? "adb install -r"
+        var allSucceeded = true
+
+        for url in urls {
+            let shell = "\(base) \"\(url.path)\""
+            cmdState?.output += "$ \(shell)\n"
+            log("$ \(shell)", .command)
+            let (code, out) = await capture(shell)
+            cmdState?.output += out
+            let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { log(trimmed, .output) }
+            // adb prints "Success" on a successful install.
+            if code != 0 || (!out.isEmpty && !out.contains("Success")) {
+                allSucceeded = false
+                log("✕ \(url.lastPathComponent) failed to install", .failure)
+            } else {
+                log("✓ Installed \(url.lastPathComponent)", .success)
+            }
+            cmdState?.output += "\n"
+        }
+
+        cmdState?.status = allSucceeded ? .succeeded : .failed("Install failed")
+        action.status = allSucceeded ? .succeeded : .failed("One or more APKs failed to install")
+    }
+
+    /// Show a native file picker for `.apk` files.
+    private func pickAPKs() -> [URL]? {
+        let panel = NSOpenPanel()
+        panel.title = "Choose APKs to Install"
+        panel.prompt = "Install"
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        if let apkType = UTType(filenameExtension: "apk") {
+            panel.allowedContentTypes = [apkType]
+        }
+        let defaultDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Downloads/redstone-apks")
+        if FileManager.default.fileExists(atPath: defaultDir.path) {
+            panel.directoryURL = defaultDir
+        }
+        return panel.runModal() == .OK ? panel.urls : nil
+    }
+
+    // MARK: - Confirmation dialog
+
+    private func confirmRun(_ action: StepState) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Run \u{201C}\(action.step.title)\u{201D}?"
+        alert.informativeText = action.step.confirmMessage ?? action.step.description
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Run")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func runCommand(_ cmdState: CommandState) async -> Bool {
+        cmdState.status = .running
+        cmdState.output = ""
+
+        let shell = cmdState.command.shell
+        let successPattern = cmdState.command.successPattern
+        let failureMessage = cmdState.command.failureMessage
+
+        var collectedOutput = ""
+        var lineBuffer = ""
+
+        log("$ \(shell)", .command)
+
+        do {
+            let exitCode = try await runner.run(shell: shell) { chunk in
+                cmdState.output += chunk
+                collectedOutput += chunk
+                // Emit complete lines to the console as they stream in.
+                lineBuffer += chunk
+                while let nl = lineBuffer.firstIndex(of: "\n") {
+                    self.log(String(lineBuffer[..<nl]), .output)
+                    lineBuffer = String(lineBuffer[lineBuffer.index(after: nl)...])
+                }
+            }
+            if !lineBuffer.isEmpty { log(lineBuffer, .output) }
+
+            let succeeded: Bool
+            if let pattern = successPattern {
+                succeeded = matches(collectedOutput, anyOf: pattern) || exitCode == 0
+            } else {
+                succeeded = exitCode == 0
+            }
+
+            if succeeded {
+                cmdState.status = .succeeded
+                log("✓ \(cmdState.command.label)", .success)
+            } else {
+                let msg = failureMessage ?? "Exit code \(exitCode)"
+                cmdState.status = .failed(msg)
+                if cmdState.output.isEmpty { cmdState.output = msg }
+                log("✕ \(msg)", .failure)
+            }
+            return succeeded
+        } catch {
+            let msg = failureMessage ?? error.localizedDescription
+            cmdState.status = .failed(msg)
+            cmdState.output += "\nError: \(error.localizedDescription)"
+            log("✕ \(msg)", .failure)
+            return false
+        }
+    }
+
+    /// `successPattern` may contain `|`-separated alternatives.
+    private func matches(_ output: String, anyOf pattern: String) -> Bool {
+        pattern.split(separator: "|").contains { output.contains($0.trimmingCharacters(in: .whitespaces)) }
+    }
+
+    // MARK: - ADB installation
+
+    /// Install Android Debug Bridge via Homebrew, then re-check status.
+    func installADB() async {
+        guard !isInstallingADB else { return }
+        isInstallingADB = true
+        errorMessage = nil
+        let (code, out) = await capture("brew install android-platform-tools")
+        isInstallingADB = false
+        if code != 0 && !out.contains("already installed") {
+            errorMessage = "Couldn't install ADB via Homebrew. Is Homebrew installed? See https://brew.sh"
+        }
+        await refreshDevice()
+    }
+
+    // MARK: - Device status (manual refresh)
+
+    func refreshDevice() async {
+        guard !isRefreshingDevice else { return }
+        isRefreshingDevice = true
+        defer { isRefreshingDevice = false }
+
+        // Automatically check whether ADB is available before anything else.
+        let (adbCode, _) = await capture("command -v adb")
+        guard adbCode == 0 else {
+            adbInstalled = false
+            device = .disconnected
+            return
+        }
+        adbInstalled = true
+
+        let (_, devicesOut) = await capture("adb devices")
+        let deviceLines = devicesOut
+            .components(separatedBy: "\n")
+            .filter { $0.contains("\t") }
+
+        var info = DeviceInfo()
+        if deviceLines.contains(where: { $0.hasSuffix("device") }) {
+            info.connection = .connected
+        } else if deviceLines.contains(where: { $0.hasSuffix("unauthorized") }) {
+            info.connection = .unauthorized
+        } else {
+            info.connection = .disconnected
+        }
+
+        if info.connection == .connected {
+            info.model = await captureTrimmed("adb shell getprop ro.product.model")
+            info.androidVersion = await captureTrimmed("adb shell getprop ro.build.version.release")
+            info.serial = await captureTrimmed("adb get-serialno")
+            if let level = await captureTrimmed("adb shell dumpsys battery | awk '/level:/ {print $2}'"),
+               !level.isEmpty {
+                info.battery = "\(level)%"
+            }
+            // Confirm display settings (formerly the "Verify Setup" action).
+            if let size = await captureTrimmed("adb shell wm size") {
+                info.resolution = size
+                    .components(separatedBy: "\n").first?
+                    .components(separatedBy: ": ").last?
+                    .trimmingCharacters(in: .whitespaces)
+            }
+            if let dens = await captureTrimmed("adb shell wm density") {
+                if let value = dens
+                    .components(separatedBy: "\n").first?
+                    .components(separatedBy: ": ").last?
+                    .trimmingCharacters(in: .whitespaces) {
+                    info.density = "\(value)dpi"
+                }
+            }
+        }
+
+        device = info
+    }
+
+    /// Run a shell command and return its exit code plus combined output.
+    private func capture(_ shell: String) async -> (Int32, String) {
+        var out = ""
+        let code = (try? await runner.run(shell: shell) { out += $0 }) ?? -1
+        return (code, out)
+    }
+
+    private func captureTrimmed(_ shell: String) async -> String? {
+        let (_, out) = await capture(shell)
+        let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}

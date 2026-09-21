@@ -1,0 +1,157 @@
+import Foundation
+
+// MARK: - Data Models (loaded from setup_flows.json)
+
+struct SetupFlowCatalog: Codable {
+    let flows: [SetupFlow]
+}
+
+struct SetupFlow: Codable, Identifiable {
+    let id: String
+    let name: String
+    let description: String
+    let icon: String
+    let steps: [SetupStep]
+}
+
+struct SetupStep: Codable, Identifiable {
+    let id: String
+    let title: String
+    let description: String
+    let requiresDevice: Bool
+    let isManual: Bool?
+    let optional: Bool?
+    let commands: [StepCommand]
+    /// Dashboard grouping, e.g. "Connection", "Display". Defaults to "General".
+    var category: String? = nil
+    /// Optional SF Symbol shown on the action card.
+    var icon: String? = nil
+    /// Special behavior, e.g. "installApks" opens a file picker instead of
+    /// running the listed commands verbatim. `nil` = run commands normally.
+    var kind: String? = nil
+    /// If true, a confirmation dialog is shown before the action runs.
+    var confirm: Bool? = nil
+    /// Optional custom text for that confirmation dialog.
+    var confirmMessage: String? = nil
+}
+
+struct StepCommand: Codable, Identifiable {
+    let id: String
+    let label: String
+    let shell: String
+    let successPattern: String?
+    let failureMessage: String?
+}
+
+// MARK: - Device Status
+
+/// Snapshot of the connected tablet, shown in the dashboard status bar.
+struct DeviceInfo: Equatable {
+    enum Connection: Equatable {
+        case disconnected
+        case unauthorized
+        case connected
+    }
+
+    var connection: Connection = .disconnected
+    var model: String?
+    var androidVersion: String?
+    var serial: String?
+    var battery: String?
+    var resolution: String?
+    var density: String?
+
+    static let disconnected = DeviceInfo()
+}
+
+// MARK: - Console Log
+
+/// A single line in the persistent console at the bottom of the dashboard.
+struct ConsoleEntry: Identifiable {
+    enum Kind {
+        case command   // the shell command being sent
+        case output    // stdout/stderr from the command
+        case success   // a command finished successfully
+        case failure   // a command failed
+        case info      // section separators / action headers
+    }
+
+    let id = UUID()
+    let kind: Kind
+    let text: String
+}
+
+// MARK: - Runtime State
+
+enum StepStatus: Equatable {
+    case pending
+    case running
+    case succeeded
+    case failed(String)
+    case skipped
+
+    var icon: String {
+        switch self {
+        case .pending:  return "circle"
+        case .running:  return "arrow.triangle.2.circlepath"
+        case .succeeded: return "checkmark.circle.fill"
+        case .failed:   return "xmark.circle.fill"
+        case .skipped:  return "minus.circle"
+        }
+    }
+
+    var color: String {
+        switch self {
+        case .pending:  return "gray"
+        case .running:  return "blue"
+        case .succeeded: return "green"
+        case .failed:   return "red"
+        case .skipped:  return "orange"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .pending:        return "Pending"
+        case .running:        return "Running..."
+        case .succeeded:      return "Complete"
+        case .failed(let m):  return "Failed: \(m)"
+        case .skipped:        return "Skipped"
+        }
+    }
+}
+
+enum CommandStatus: Equatable {
+    case pending
+    case running
+    case succeeded
+    case failed(String)
+}
+
+@MainActor
+class CommandState: ObservableObject, Identifiable {
+    let id: String
+    let command: StepCommand
+    @Published var status: CommandStatus = .pending
+    @Published var output: String = ""
+
+    init(command: StepCommand) {
+        self.id = command.id
+        self.command = command
+    }
+}
+
+@MainActor
+class StepState: ObservableObject, Identifiable {
+    let id: String
+    let step: SetupStep
+    @Published var status: StepStatus = .pending
+    @Published var commandStates: [CommandState]
+    @Published var isExpanded: Bool = false
+
+    init(step: SetupStep) {
+        self.id = step.id
+        self.step = step
+        self.commandStates = step.commands.map { CommandState(command: $0) }
+    }
+}

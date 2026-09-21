@@ -1,0 +1,138 @@
+{
+  "flows": [
+    {
+      "id": "redstone-tablet-setup",
+      "name": "Redstone Tablet Setup",
+      "description": "Actions for provisioning and maintaining Peloton Redstone design review tablets",
+      "icon": "tabletsymbol",
+      "steps": [
+        {
+          "id": "install-apps",
+          "title": "Install Apps",
+          "description": "Choose one or more APK files to install on the connected tablet.",
+          "category": "Frequently Used",
+          "icon": "square.and.arrow.down",
+          "kind": "installApks",
+          "requiresDevice": true,
+          "commands": [
+            {
+              "id": "install",
+              "label": "Install selected APKs",
+              "shell": "adb install -r"
+            }
+          ]
+        },
+        {
+          "id": "take-screenshot",
+          "title": "Take Screenshot",
+          "description": "Capture the tablet's current screen and save it to /tmp/ on your Mac.",
+          "category": "Frequently Used",
+          "icon": "camera",
+          "requiresDevice": true,
+          "commands": [
+            {
+              "id": "screenshot",
+              "label": "Capture screen",
+              "shell": "adb exec-out screencap -p > /tmp/redstone-$(date +%Y%m%d-%H%M%S).png && echo 'Screenshot saved to /tmp/'",
+              "successPattern": "Screenshot saved"
+            }
+          ]
+        },
+        {
+          "id": "configure-display",
+          "title": "Configure Display",
+          "description": "Set display density and font scale optimized for design review, and reduce animations for cleaner screenshots.",
+          "category": "Debug",
+          "icon": "textformat.size",
+          "requiresDevice": true,
+          "commands": [
+            {
+              "id": "set-density",
+              "label": "Set display density",
+              "shell": "adb shell wm density 420"
+            },
+            {
+              "id": "set-font-scale",
+              "label": "Set font scale to 1.0",
+              "shell": "adb shell settings put system font_scale 1.0"
+            },
+            {
+              "id": "disable-animations",
+              "label": "Reduce animations",
+              "shell": "adb shell settings put global window_animation_scale 0.5 && adb shell settings put global transition_animation_scale 0.5 && adb shell settings put global animator_duration_scale 0.5"
+            }
+          ]
+        },
+        {
+          "id": "enable-features",
+          "title": "Enable Debug Overlays",
+          "description": "Enable layout bounds, pointer location, and other debug overlays useful for design QA.",
+          "category": "Debug",
+          "icon": "square.dashed",
+          "requiresDevice": true,
+          "commands": [
+            {
+              "id": "show-layout-bounds",
+              "label": "Enable layout bounds display",
+              "shell": "adb shell setprop debug.layout false"
+            },
+            {
+              "id": "pointer-location",
+              "label": "Enable pointer location",
+              "shell": "adb shell settings put system pointer_location 0"
+            }
+          ]
+        },
+        {
+          "id": "reset-display",
+          "title": "Reset Display",
+          "description": "Restore the tablet's default display density, font scale, and animation speeds.",
+          "category": "Debug",
+          "icon": "arrow.uturn.backward",
+          "requiresDevice": true,
+          "confirm": true,
+          "confirmMessage": "This will revert the tablet's display density, font scale, and animation speeds to their defaults.",
+          "commands": [
+            {
+              "id": "reset-density",
+              "label": "Reset display density",
+              "shell": "adb shell wm density reset"
+            },
+            {
+              "id": "reset-font-scale",
+              "label": "Reset font scale",
+              "shell": "adb shell settings put system font_scale 1.0"
+            },
+            {
+              "id": "reset-animations",
+              "label": "Restore animations",
+              "shell": "adb shell settings put global window_animation_scale 1.0 && adb shell settings put global transition_animation_scale 1.0 && adb shell settings put global animator_duration_scale 1.0"
+            }
+          ]
+        },
+        {
+          "id": "push-config",
+          "title": "Push Design Config",
+          "description": "Create the Redstone design review configuration directory on the tablet.",
+          "category": "Debug",
+          "icon": "folder.badge.plus",
+          "requiresDevice": true,
+          "confirm": true,
+          "confirmMessage": "This will create the Redstone design review configuration directory on the connected tablet.",
+          "commands": [
+            {
+              "id": "create-dir",
+              "label": "Create config directory on device",
+              "shell": "adb shell mkdir -p /sdcard/Peloton/design"
+            },
+            {
+              "id": "set-permissions",
+              "label": "Set directory permissions",
+              "shell": "adb shell chmod 755 /sdcard/Peloton/design"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
