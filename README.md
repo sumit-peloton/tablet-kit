@@ -1,4 +1,4 @@
-# Redstone Setup App
+# Tablet Setup App
 
 A native macOS SwiftUI app for Peloton product designers to manage Redstone design-review tablets. A dashboard shows the connected tablet's status and a grid of run-on-demand actions (grouped by category) with real-time command output.
 
