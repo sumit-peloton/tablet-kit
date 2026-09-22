@@ -8,6 +8,8 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 24) {
             if vm.adbInstalled == false {
                 ADBNoticeBanner(vm: vm)
+            } else {
+                DevicePanel(vm: vm)
             }
             ForEach(vm.categories, id: \.name) { group in
                 CategorySection(vm: vm, name: group.name, actions: group.actions)
@@ -18,46 +20,134 @@ struct ContentView: View {
         .frame(minWidth: 780, maxWidth: .infinity, alignment: .topLeading)
         .background(Color(NSColor.windowBackgroundColor))
         .navigationTitle("Tablet Kit")
-        .navigationSubtitle(statusSummary)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+        .task { await vm.refreshDevice() }
+    }
+}
+
+// MARK: - Device Panel (one-glance status dashboard)
+
+struct DevicePanel: View {
+    @ObservedObject var vm: SetupViewModel
+
+    private struct Stat: Identifiable {
+        let id: String
+        let label: String
+        let value: String
+    }
+
+    private let columns = [
+        GridItem(.flexible(), alignment: .topLeading),
+        GridItem(.flexible(), alignment: .topLeading),
+        GridItem(.flexible(), alignment: .topLeading),
+        GridItem(.flexible(), alignment: .topLeading)
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header: connection status + Refresh
+            HStack(spacing: 10) {
+                Image(systemName: "tablet")
+                    .font(.title3)
+                    .foregroundStyle(statusColor)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(statusText)
+                        .font(.headline)
+                    if vm.device.connection != .connected {
+                        Text(hintText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+
                 Button {
                     Task { await vm.refreshDevice() }
                 } label: {
-                    if vm.isRefreshingDevice {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Refresh", systemImage: "arrow.clockwise")
+                    HStack(spacing: 6) {
+                        if vm.isRefreshingDevice {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        Text("Refresh")
                     }
                 }
-                .disabled(vm.isRefreshingDevice || vm.isInstallingADB)
-                .help("Check ADB and refresh tablet status")
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(vm.isRefreshingDevice)
+            }
+            .padding(16)
+
+            if vm.device.connection == .connected {
+                Divider()
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+                    ForEach(stats) { stat in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(stat.value)
+                                .font(.system(.callout, weight: .semibold))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                            Text(stat.label.uppercased())
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                                .tracking(0.5)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(16)
             }
         }
-        .task { await vm.refreshDevice() }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+        )
     }
 
-    // MARK: - Status shown in the window title bar
-
-    /// One-line summary shown as the window subtitle.
-    private var statusSummary: String {
-        if vm.adbInstalled == false {
-            return "ADB not installed — install it to manage tablets"
+    private var stats: [Stat] {
+        var s: [Stat] = []
+        func add(_ label: String, _ value: String?) {
+            if let value, !value.isEmpty { s.append(Stat(id: label, label: label, value: value)) }
         }
+        add("Generation", vm.device.generation)
+        add("Platform", vm.device.platform)
+        add("Android", vm.device.androidVersion.map { "Android \($0)" })
+        add("Peloton OS", vm.device.pelotonOS)
+        add("Resolution", vm.device.resolution)
+        add("Density", vm.device.density)
+        add("Serial", vm.device.serial)
+        return s
+    }
+
+    private var statusColor: Color {
         switch vm.device.connection {
-        case .connected:
-            let parts = [
-                vm.device.model,
-                vm.device.androidVersion.map { "Android \($0)" },
-                vm.device.resolution,
-                vm.device.density,
-                vm.device.battery.map { "🔋 \($0)" }
-            ].compactMap { $0 }
-            return parts.isEmpty ? "Tablet connected" : parts.joined(separator: "  ·  ")
-        case .unauthorized:
-            return "Accept the USB debugging prompt on the tablet"
-        case .disconnected:
-            return "Plug in a tablet to get started"
+        case .connected:    return .green
+        case .unauthorized: return .orange
+        case .disconnected: return Color(NSColor.tertiaryLabelColor)
+        }
+    }
+
+    private var statusText: String {
+        switch vm.device.connection {
+        case .connected:    return "Tablet Connected"
+        case .unauthorized: return "Tablet Unauthorized"
+        case .disconnected: return "No Tablet Connected"
+        }
+    }
+
+    private var hintText: String {
+        switch vm.device.connection {
+        case .unauthorized: return "Accept the USB debugging prompt on the tablet, then Refresh."
+        default:            return "Plug in a tablet and press Refresh."
         }
     }
 }
@@ -176,6 +266,19 @@ struct ActionCardView: View {
                     }
                 }
 
+                // Picker for choice-style actions (e.g. hardware platform)
+                if action.step.kind == "platformPicker", let options = action.step.options {
+                    Picker("", selection: $action.selectedOptionID) {
+                        ForEach(options) { option in
+                            Text(option.title).tag(Optional(option.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                    .fixedSize()
+                }
+
                 Spacer(minLength: 4)
 
                 statusBadge
@@ -191,7 +294,7 @@ struct ActionCardView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(NSColor.controlBackgroundColor))

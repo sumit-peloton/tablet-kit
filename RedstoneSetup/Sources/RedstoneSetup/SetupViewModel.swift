@@ -94,6 +94,12 @@ class SetupViewModel: ObservableObject {
             return
         }
 
+        // Picker-style action: run the selected option's shell.
+        if action.step.kind == "platformPicker" {
+            await runSelectedOption(action)
+            return
+        }
+
         // Optional confirmation dialog before running.
         if action.step.confirm == true, !confirmRun(action) {
             return
@@ -115,6 +121,34 @@ class SetupViewModel: ObservableObject {
         } else {
             action.status = .failed("One or more commands failed")
         }
+    }
+
+    // MARK: - Picker-style action (e.g. hardware platform)
+
+    private func runSelectedOption(_ action: StepState) async {
+        guard let options = action.step.options, !options.isEmpty else { return }
+        let selectedID = action.selectedOptionID ?? options.first?.id
+        guard let option = options.first(where: { $0.id == selectedID }) ?? options.first else { return }
+
+        guard device.connection == .connected else {
+            log("▸ \(action.step.title)", .info)
+            log("✕ No tablet connected — plug in a tablet and press Refresh", .failure)
+            action.status = .failed("No tablet connected")
+            return
+        }
+
+        action.status = .running
+        log("▸ \(action.step.title): \(option.title)", .info)
+
+        let command = StepCommand(
+            id: option.id,
+            label: "Set hardware to \(option.title)",
+            shell: option.shell,
+            successPattern: option.successPattern,
+            failureMessage: nil
+        )
+        let ok = await runCommand(CommandState(command: command))
+        action.status = ok ? .succeeded : .failed("Command failed")
     }
 
     // MARK: - APK installer (file picker)
@@ -293,12 +327,16 @@ class SetupViewModel: ObservableObject {
         }
 
         if info.connection == .connected {
-            info.model = await captureTrimmed("adb shell getprop ro.product.model")
+            if let board = await captureTrimmed("adb shell getprop ro.boot.carrier_board"),
+               !board.isEmpty {
+                info.generation = board.capitalized
+            }
             info.androidVersion = await captureTrimmed("adb shell getprop ro.build.version.release")
+            info.pelotonOS = await captureTrimmed("adb shell getprop ro.peloton.os.version")
             info.serial = await captureTrimmed("adb get-serialno")
-            if let level = await captureTrimmed("adb shell dumpsys battery | awk '/level:/ {print $2}'"),
-               !level.isEmpty {
-                info.battery = "\(level)%"
+            if let raw = await captureTrimmed("adb shell settings get global peloton_platform"),
+               raw != "null" {
+                info.platform = friendlyPlatform(raw)
             }
             // Confirm display settings (formerly the "Verify Setup" action).
             if let size = await captureTrimmed("adb shell wm size") {
@@ -318,6 +356,17 @@ class SetupViewModel: ObservableObject {
         }
 
         device = info
+    }
+
+    /// Map the raw `peloton_platform` value to the design-review name.
+    private func friendlyPlatform(_ raw: String) -> String {
+        switch raw.lowercased() {
+        case "titan":  return "Bike"
+        case "caesar": return "Row"
+        case "prism":  return "Tread"
+        case "aurora": return "Tread+"
+        default:       return raw
+        }
     }
 
     /// Run a shell command and return its exit code plus combined output.

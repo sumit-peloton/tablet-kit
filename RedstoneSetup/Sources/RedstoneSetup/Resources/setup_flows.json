@@ -25,7 +25,7 @@
         {
           "id": "take-screenshot",
           "title": "Take Screenshot",
-          "description": "Capture the tablet's current screen and save it to /tmp/ on your Mac.",
+          "description": "Capture the tablet's current screen and save it to your Desktop.",
           "category": "Frequently Used",
           "icon": "camera",
           "requiresDevice": true,
@@ -33,8 +33,64 @@
             {
               "id": "screenshot",
               "label": "Capture screen",
-              "shell": "adb exec-out screencap -p > /tmp/redstone-$(date +%Y%m%d-%H%M%S).png && echo 'Screenshot saved to /tmp/'",
+              "shell": "adb exec-out screencap -p > \"$HOME/Desktop/redstone-$(date +%Y%m%d-%H%M%S).png\" && echo \"Screenshot saved to $HOME/Desktop/\"",
               "successPattern": "Screenshot saved"
+            }
+          ]
+        },
+        {
+          "id": "switch-hardware",
+          "title": "Switch Hardware",
+          "description": "Set the tablet's simulated hardware platform, then reboot.",
+          "category": "Hardware",
+          "icon": "cpu",
+          "kind": "platformPicker",
+          "requiresDevice": true,
+          "commands": [],
+          "options": [
+            {
+              "id": "bike",
+              "title": "Bike",
+              "shell": "echo \"Setting hardware type to Titan...\"\nadb shell settings put global peloton_platform titan\nadb shell am broadcast -a com.onepeloton.activity.SET_HARDWARE --es \"hardware_type\" \"titan\"\nadb shell touch /sdcard/.HomeInstallerDone\nadb shell rm -rf /sdcard/.enablePrismSimulator\nadb shell rm -rf /sdcard/.enableAuroraSimulator\necho \"Rebooting...\"\nadb reboot\necho \"Bike hardware ready.\"\nadb shell am broadcast -a onepeloton.intent.action.AUTOMATION_FAKE_DATA --es onepeloton.intent.extra.PLATFORM prism --ei onepeloton.intent.extra.FAKE_DATA_STATE 0",
+              "successPattern": "hardware ready"
+            },
+            {
+              "id": "row",
+              "title": "Row",
+              "shell": "echo \"Setting hardware type to Row...\"\nadb shell settings put global peloton_platform caesar\nadb shell am broadcast -a com.onepeloton.activity.SET_HARDWARE --es \"hardware_type\" \"caesar\"\nadb shell touch /sdcard/.HomeInstallerDone\nadb shell rm -rf /sdcard/.enablePrismSimulator\nadb shell rm -rf /sdcard/.enableAuroraSimulator\necho \"Rebooting...\"\nadb reboot\necho \"Row hardware ready.\"",
+              "successPattern": "hardware ready"
+            },
+            {
+              "id": "tread",
+              "title": "Tread",
+              "shell": "echo \"Setting hardware type to Tread...\"\nadb shell settings put global peloton_platform prism\nadb shell am broadcast -a com.onepeloton.activity.SET_HARDWARE --es \"hardware_type\" \"prism\"\nadb shell touch /sdcard/.HomeInstallerDone\nadb shell touch /sdcard/.enablePrismSimulator\necho \"Rebooting...\"\nadb reboot\necho \"Tread hardware ready.\"",
+              "successPattern": "hardware ready"
+            },
+            {
+              "id": "tread-plus",
+              "title": "Tread+",
+              "shell": "echo \"Setting hardware type to Tread...\"\nadb shell settings put global peloton_platform aurora\nadb shell am broadcast -a com.onepeloton.activity.SET_HARDWARE --es \"hardware_type\" \"aurora\"\nadb shell touch /sdcard/.HomeInstallerDone\nadb shell touch /sdcard/.enableAuroraSimulator\necho \"Rebooting...\"\nadb reboot\necho \"Tread hardware ready.\"",
+              "successPattern": "hardware ready"
+            }
+          ]
+        },
+        {
+          "id": "remove-pin",
+          "title": "Remove PIN Indicator",
+          "description": "Disable the sensor-state PIN indicator overlays on the tablet.",
+          "category": "Hardware",
+          "icon": "pin.slash",
+          "requiresDevice": true,
+          "commands": [
+            {
+              "id": "disable-pin-indicator",
+              "label": "Disable PIN indicator",
+              "shell": "adb shell am broadcast -a com.onepeloton.sensorstateindicator.monitor.pin.ENABLE_PIN_INDICATOR --ez \"enable\" false"
+            },
+            {
+              "id": "disable-pin-timeout",
+              "label": "Disable PIN timeout",
+              "shell": "adb shell am broadcast -a com.onepeloton.sensorstateindicator.monitor.pin.ENABLE_PIN_TIMEOUT --ez \"enable\" false"
             }
           ]
         },
@@ -74,12 +130,12 @@
             {
               "id": "show-layout-bounds",
               "label": "Enable layout bounds display",
-              "shell": "adb shell setprop debug.layout false"
+              "shell": "adb shell setprop debug.layout true"
             },
             {
               "id": "pointer-location",
               "label": "Enable pointer location",
-              "shell": "adb shell settings put system pointer_location 0"
+              "shell": "adb shell settings put system pointer_location 1"
             }
           ]
         },

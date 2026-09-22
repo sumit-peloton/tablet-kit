@@ -33,6 +33,10 @@ struct SetupStep: Codable, Identifiable {
     var confirm: Bool? = nil
     /// Optional custom text for that confirmation dialog.
     var confirmMessage: String? = nil
+    /// Options for a picker-style action. When present with
+    /// `kind == "platformPicker"`, the card shows a dropdown and runs the
+    /// selected option's shell instead of the listed commands.
+    var options: [StepOption]? = nil
 }
 
 struct StepCommand: Codable, Identifiable {
@@ -41,6 +45,14 @@ struct StepCommand: Codable, Identifiable {
     let shell: String
     let successPattern: String?
     let failureMessage: String?
+}
+
+/// A single selectable choice for a picker-style action.
+struct StepOption: Codable, Identifiable {
+    let id: String
+    let title: String
+    let shell: String
+    let successPattern: String?
 }
 
 // MARK: - Device Status
@@ -54,10 +66,14 @@ struct DeviceInfo: Equatable {
     }
 
     var connection: Connection = .disconnected
-    var model: String?
+    /// Physical tablet hardware generation (e.g. Redstone, Topaz).
+    var generation: String?
     var androidVersion: String?
+    /// Peloton OS version (ro.peloton.os.version).
+    var pelotonOS: String?
     var serial: String?
-    var battery: String?
+    /// Currently emulated Peloton platform (Bike / Row / Tread / Tread+).
+    var platform: String?
     var resolution: String?
     var density: String?
 
@@ -148,10 +164,13 @@ class StepState: ObservableObject, Identifiable {
     @Published var status: StepStatus = .pending
     @Published var commandStates: [CommandState]
     @Published var isExpanded: Bool = false
+    /// Currently selected option id for picker-style actions.
+    @Published var selectedOptionID: String?
 
     init(step: SetupStep) {
         self.id = step.id
         self.step = step
         self.commandStates = step.commands.map { CommandState(command: $0) }
+        self.selectedOptionID = step.options?.first?.id
     }
 }
