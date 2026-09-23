@@ -121,11 +121,14 @@
         },
         {
           "id": "enable-features",
-          "title": "Enable Debug Overlays",
-          "description": "Enable layout bounds, pointer location, and other debug overlays useful for design QA.",
+          "title": "Debug Overlays",
+          "description": "Toggle layout bounds and pointer location overlays useful for design QA.",
           "category": "Debug",
           "icon": "square.dashed",
           "requiresDevice": true,
+          "kind": "toggle",
+          "stateCommand": "adb shell getprop debug.layout",
+          "onPattern": "true",
           "commands": [
             {
               "id": "show-layout-bounds",
@@ -136,6 +139,28 @@
               "id": "pointer-location",
               "label": "Enable pointer location",
               "shell": "adb shell settings put system pointer_location 1"
+            },
+            {
+              "id": "refresh-ui",
+              "label": "Refresh screen to apply overlays",
+              "shell": "adb shell input keyevent KEYCODE_SLEEP && sleep 0.5 && adb shell input keyevent KEYCODE_WAKEUP"
+            }
+          ],
+          "offCommands": [
+            {
+              "id": "hide-layout-bounds",
+              "label": "Disable layout bounds display",
+              "shell": "adb shell setprop debug.layout false"
+            },
+            {
+              "id": "pointer-location-off",
+              "label": "Disable pointer location",
+              "shell": "adb shell settings put system pointer_location 0"
+            },
+            {
+              "id": "refresh-ui-off",
+              "label": "Refresh screen to apply",
+              "shell": "adb shell input keyevent KEYCODE_SLEEP && sleep 0.5 && adb shell input keyevent KEYCODE_WAKEUP"
             }
           ]
         },

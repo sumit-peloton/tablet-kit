@@ -283,7 +283,11 @@ struct ActionCardView: View {
 
                 statusBadge
 
-                runButton
+                if action.step.kind == "toggle" {
+                    toggleControl
+                } else {
+                    runButton
+                }
             }
 
             // Description — always reserve 2 lines so every card is the same height
@@ -319,6 +323,23 @@ struct ActionCardView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
             )
+    }
+
+    private var toggleControl: some View {
+        HStack(spacing: 6) {
+            if isRunning {
+                ProgressView().controlSize(.small)
+            }
+            Toggle("", isOn: Binding(
+                get: { action.isOn },
+                set: { newValue in Task { await vm.setToggle(action, on: newValue) } }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .disabled(isRunning || vm.device.connection != .connected)
+            .help("Toggle \(action.step.title)")
+        }
     }
 
     private var runButton: some View {

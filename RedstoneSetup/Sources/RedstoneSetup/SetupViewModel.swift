@@ -123,6 +123,42 @@ class SetupViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Toggle-style action (e.g. debug overlays)
+
+    /// Turn a `kind == "toggle"` action on or off, running the matching command
+    /// set. Optimistically reverts the switch if the tablet isn't connected.
+    func setToggle(_ action: StepState, on: Bool) async {
+        if case .running = action.status { return }
+
+        guard device.connection == .connected else {
+            log("▸ \(action.step.title)", .info)
+            log("✕ No tablet connected — plug in a tablet and press Refresh", .failure)
+            action.isOn = !on // revert the switch
+            action.status = .failed("No tablet connected")
+            return
+        }
+
+        let commands = on ? action.step.commands : (action.step.offCommands ?? [])
+        guard !commands.isEmpty else { return }
+
+        action.status = .running
+        log("▸ \(action.step.title): \(on ? "On" : "Off")", .info)
+
+        var allSucceeded = true
+        for command in commands {
+            let ok = await runCommand(CommandState(command: command))
+            if !ok { allSucceeded = false }
+        }
+
+        if allSucceeded {
+            action.status = .succeeded
+            action.isOn = on
+        } else {
+            action.status = .failed("One or more commands failed")
+            action.isOn = !on // revert the switch to reflect the failure
+        }
+    }
+
     // MARK: - Picker-style action (e.g. hardware platform)
 
     private func runSelectedOption(_ action: StepState) async {
@@ -352,6 +388,13 @@ class SetupViewModel: ObservableObject {
                     .trimmingCharacters(in: .whitespaces) {
                     info.density = "\(value)dpi"
                 }
+            }
+
+            // Reflect the current on/off state of any toggle actions.
+            for action in actions where action.step.kind == "toggle" {
+                guard let stateCommand = action.step.stateCommand else { continue }
+                let output = (await captureTrimmed(stateCommand)) ?? ""
+                action.isOn = matches(output, anyOf: action.step.onPattern ?? "true")
             }
         }
 

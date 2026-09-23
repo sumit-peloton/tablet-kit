@@ -37,6 +37,15 @@ struct SetupStep: Codable, Identifiable {
     /// `kind == "platformPicker"`, the card shows a dropdown and runs the
     /// selected option's shell instead of the listed commands.
     var options: [StepOption]? = nil
+    /// For `kind == "toggle"`: commands run to turn the toggle OFF. The
+    /// existing `commands` array is used to turn it ON.
+    var offCommands: [StepCommand]? = nil
+    /// For `kind == "toggle"`: shell command whose output reflects the current
+    /// on/off state, checked against `onPattern` during a device refresh.
+    var stateCommand: String? = nil
+    /// For `kind == "toggle"`: if `stateCommand`'s output matches, the toggle
+    /// is considered ON. Defaults to `"true"` when omitted.
+    var onPattern: String? = nil
 }
 
 struct StepCommand: Codable, Identifiable {
@@ -166,6 +175,9 @@ class StepState: ObservableObject, Identifiable {
     @Published var isExpanded: Bool = false
     /// Currently selected option id for picker-style actions.
     @Published var selectedOptionID: String?
+    /// Current on/off state for `kind == "toggle"` actions. Refreshed from the
+    /// device on each `refreshDevice()`.
+    @Published var isOn: Bool = false
 
     init(step: SetupStep) {
         self.id = step.id
