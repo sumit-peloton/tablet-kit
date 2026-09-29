@@ -12,6 +12,7 @@
           "description": "Choose one or more APK files to install on the connected tablet.",
           "category": "Frequently Used",
           "icon": "square.and.arrow.down",
+          "runIcon": "square.and.arrow.up",
           "kind": "installApks",
           "requiresDevice": true,
           "commands": [
@@ -28,6 +29,7 @@
           "description": "Capture the tablet's current screen and save it to your Desktop.",
           "category": "Frequently Used",
           "icon": "camera",
+          "runIcon": "camera.fill",
           "requiresDevice": true,
           "commands": [
             {
@@ -44,6 +46,7 @@
           "description": "Choose an image file to push to the tablet and open on its screen.",
           "category": "Frequently Used",
           "icon": "photo",
+          "runIcon": "square.and.arrow.up",
           "kind": "displayImage",
           "requiresDevice": true,
           "commands": []

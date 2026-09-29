@@ -26,6 +26,8 @@ struct SetupStep: Codable, Identifiable {
     var category: String? = nil
     /// Optional SF Symbol shown on the action card.
     var icon: String? = nil
+    /// Optional SF Symbol for the run button (defaults to a play triangle).
+    var runIcon: String? = nil
     /// Special behavior, e.g. "installApks" opens a file picker instead of
     /// running the listed commands verbatim. `nil` = run commands normally.
     var kind: String? = nil

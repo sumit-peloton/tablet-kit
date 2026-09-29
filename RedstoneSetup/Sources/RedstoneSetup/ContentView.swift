@@ -354,6 +354,10 @@ struct ActionCardView: View {
                     ProgressView()
                         .scaleEffect(0.5)
                         .tint(.white)
+                } else if let runIcon = action.step.runIcon {
+                    Image(systemName: runIcon)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
                 } else {
                     Image(systemName: "play.fill")
                         .font(.system(size: 11, weight: .bold))
