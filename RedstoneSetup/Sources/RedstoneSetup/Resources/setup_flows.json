@@ -39,6 +39,16 @@
           ]
         },
         {
+          "id": "display-image",
+          "title": "Display Image",
+          "description": "Choose an image file to push to the tablet and open on its screen.",
+          "category": "Frequently Used",
+          "icon": "photo",
+          "kind": "displayImage",
+          "requiresDevice": true,
+          "commands": []
+        },
+        {
           "id": "switch-hardware",
           "title": "Switch Hardware",
           "description": "Set the tablet's simulated hardware platform, then reboot.",

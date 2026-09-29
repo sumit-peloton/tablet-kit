@@ -100,6 +100,12 @@ class SetupViewModel: ObservableObject {
             return
         }
 
+        // Push an image and open it on the tablet's screen.
+        if action.step.kind == "displayImage" {
+            await runDisplayImage(action)
+            return
+        }
+
         // Optional confirmation dialog before running.
         if action.step.confirm == true, !confirmRun(action) {
             return
@@ -227,6 +233,80 @@ class SetupViewModel: ObservableObject {
 
         cmdState?.status = allSucceeded ? .succeeded : .failed("Install failed")
         action.status = allSucceeded ? .succeeded : .failed("One or more APKs failed to install")
+    }
+
+    // MARK: - Display an image on the tablet
+
+    private func runDisplayImage(_ action: StepState) async {
+        guard device.connection == .connected else {
+            log("▸ \(action.step.title)", .info)
+            log("✕ No tablet connected — plug in a tablet and press Refresh", .failure)
+            action.status = .failed("No tablet connected")
+            return
+        }
+        guard let url = pickImage() else { return }
+
+        action.status = .running
+        log("▸ \(action.step.title): \(url.lastPathComponent)", .info)
+
+        // Push to a fixed, space-free path so the file:// URI stays simple.
+        let ext = url.pathExtension.lowercased()
+        let remote = "/sdcard/Download/tabletkit-display.\(ext.isEmpty ? "png" : ext)"
+        let mime: String
+        switch ext {
+        case "jpg", "jpeg": mime = "image/jpeg"
+        case "png":         mime = "image/png"
+        case "gif":         mime = "image/gif"
+        case "webp":        mime = "image/webp"
+        default:            mime = "image/*"
+        }
+
+        // 1. Push the image onto the tablet.
+        let push = "adb push \"\(url.path)\" \"\(remote)\""
+        log("$ \(push)", .command)
+        let (pushCode, pushOut) = await capture(push)
+        let pushTrimmed = pushOut.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !pushTrimmed.isEmpty { log(pushTrimmed, .output) }
+        guard pushCode == 0 else {
+            log("✕ Failed to push image to tablet", .failure)
+            action.status = .failed("Push failed")
+            return
+        }
+
+        // 2. Nudge the media scanner so viewers notice the new file (best effort).
+        let scan = "adb shell \"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://\(remote)\""
+        log("$ \(scan)", .command)
+        let (_, scanOut) = await capture(scan)
+        let scanTrimmed = scanOut.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !scanTrimmed.isEmpty { log(scanTrimmed, .output) }
+
+        // 3. Open it with a VIEW intent.
+        let view = "adb shell am start -a android.intent.action.VIEW -d file://\(remote) -t \(mime)"
+        log("$ \(view)", .command)
+        let (viewCode, viewOut) = await capture(view)
+        let viewTrimmed = viewOut.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !viewTrimmed.isEmpty { log(viewTrimmed, .output) }
+
+        let lower = viewOut.lowercased()
+        if viewCode != 0 || lower.contains("no activity found") || lower.contains("error:") {
+            log("✕ Couldn't open the image — the tablet may have no image viewer, or its home app is locked", .failure)
+            action.status = .failed("No image viewer on tablet")
+        } else {
+            log("✓ Displaying \(url.lastPathComponent) on the tablet", .success)
+            action.status = .succeeded
+        }
+    }
+
+    /// Show a native file picker for a single image file.
+    private func pickImage() -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an Image to Display"
+        panel.prompt = "Display"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.image]
+        return panel.runModal() == .OK ? panel.urls.first : nil
     }
 
     /// Show a native file picker for `.apk` files.
